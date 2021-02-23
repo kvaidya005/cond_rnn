@@ -21,6 +21,8 @@ Useful if you have time series data with other inputs that do not depend on time
 
 ## API
 
+Before starting to use it, you can look at a real world example to see how CondRNN performs compared to LSTM, GRU: [here](examples/temperature).
+
 ```python
 outputs = cond_rnn.ConditionalRNN(units=NUM_CELLS, cell='GRU')([inputs, cond])
 ```
@@ -28,12 +30,74 @@ outputs = cond_rnn.ConditionalRNN(units=NUM_CELLS, cell='GRU')([inputs, cond])
 The conditional RNN expects those parameters:
 
 - `units`: int, The number of units in the RNN Cell.
-- `cell`: string, cell class or object (pre-instantiated). In the case of string, 'GRU', 'LSTM' and 'RNN' are supported.
-- `inputs`: `3-D` Tensor with shape `[batch_size, timesteps, input_dim]`.
-- `cond`: `2-D` Tensor or list of tensors with shape `[batch_size, cond_dim]`. In the case of a list, the tensors can have a different `cond_dim`.
+- `cell`: string, cell class or object (pre-instantiated). In the case of string, `'GRU'`, `'LSTM'` and `'RNN'` are supported.
 - ` *args, **kwargs`: Any parameters of the [tf.keras.layers.RNN](https://www.tensorflow.org/api_docs/python/tf/keras/layers/RNN) class, such as `return_sequences`, `return_state`, `stateful`, `unroll`...
 
-Refer to the examples for simple use cases.
+**Call**
+
+- `inputs`: `3-D` Tensor with shape `[batch_size, timesteps, input_dim]`.
+- `cond`: `2-D` Tensor or list of tensors with shape `[batch_size, cond_dim]`. In the case of a list, the tensors can have a different `cond_dim`.
+
+
+## Example
+
+```python
+# 10 stations
+# 365 days
+# 3 continuous variables A and B => C is target.
+# 2 conditions dim=5 and dim=1. First cond is one-hot. Second is continuous.
+import numpy as np
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.models import Sequential
+
+from cond_rnn import ConditionalRNN
+
+stations = 10  # 10 stations.
+time_steps = 365  # 365 days.
+continuous_variables_per_station = 3  # A,B,C where C is the target.
+condition_variables_per_station = 2  # 2 variables of dim 5 and 1.
+condition_dim_1 = 5
+condition_dim_2 = 1
+
+np.random.seed(123)
+continuous_data = np.random.uniform(size=(stations, time_steps, continuous_variables_per_station))
+condition_data_1 = np.zeros(shape=(stations, condition_dim_1))
+condition_data_1[:, 0] = 1  # dummy.
+condition_data_2 = np.random.uniform(size=(stations, condition_dim_2))
+
+window = 50  # we split series in 50 days (look-back window)
+
+x, y, c1, c2 = [], [], [], []
+for i in range(window, continuous_data.shape[1]):
+    x.append(continuous_data[:, i - window:i])
+    y.append(continuous_data[:, i])
+    c1.append(condition_data_1)  # just replicate.
+    c2.append(condition_data_2)  # just replicate.
+
+# now we have (batch_dim, station_dim, time_steps, input_dim).
+x = np.array(x)
+y = np.array(y)
+c1 = np.array(c1)
+c2 = np.array(c2)
+
+print(x.shape, y.shape, c1.shape, c2.shape)
+
+# let's collapse the station_dim in the batch_dim.
+x = np.reshape(x, [-1, window, x.shape[-1]])
+y = np.reshape(y, [-1, y.shape[-1]])
+c1 = np.reshape(c1, [-1, c1.shape[-1]])
+c2 = np.reshape(c2, [-1, c2.shape[-1]])
+
+print(x.shape, y.shape, c1.shape, c2.shape)
+
+model = Sequential(layers=[
+    ConditionalRNN(10, cell='GRU'),  # num_cells = 10
+    Dense(units=1, activation='linear')  # regression problem.
+])
+
+model.compile(optimizer='adam', loss='mse')
+model.fit(x=[x, c1, c2], y=y, epochs=2, validation_split=0.2)
+```
 
 ## Background
 
@@ -84,6 +148,20 @@ In other cases, you may want to condition the LSTM on non-temporal data. For exa
     * Transform/reshape your condition variables with an affine transformation to get it into the right shape as the internal state of the RNN: 𝑣⃗ =𝐖𝑥⃗ +𝑏⃗  (these 𝐖 and 𝑏⃗  are trainable weights). You can obtain it with a Dense layer in keras.
     * For the very first timestep, add 𝑣⃗  to the hidden state of the RNN when calculating its value.
 This approach is the most "theoretically" correct, since it properly conditions the RNN on your non-temporal inputs, naturally solves the shape problem, and also avoids polluting your inputs timesteps with additional, non-temporal information. The downside is that this approach often requires graph-level control of your architecture, so if you are using a higher-level abstraction like Keras, you will find it hard to implement unless you add your own layer type.
+
+## Citation
+
+```
+@misc{CondRNN,
+  author = {Philippe Remy},
+  title = {Conditional RNN for Keras},
+  year = {2020},
+  publisher = {GitHub},
+  journal = {GitHub repository},
+  howpublished = {\url{https://github.com/philipperemy/cond_rnn}},
+}
+```
+
 
 ## FAQ
 

@@ -1,3 +1,5 @@
+import inspect
+
 import tensorflow as tf
 
 
@@ -5,11 +7,14 @@ def _get_tensor_shape(t):
     return t.shape
 
 
+def _get_arguments_of_constructor(clazz):
+    return list(inspect.signature(clazz.__init__).parameters)
+
+
 class ConditionalRNN(tf.keras.layers.Layer):
 
     # Arguments to the RNN like return_sequences, return_state...
-    def __init__(self, units, cell=tf.keras.layers.LSTMCell, *args,
-                 **kwargs):
+    def __init__(self, units, cell=tf.keras.layers.LSTMCell, *args, **kwargs):
         """
         Conditional RNN. Conditions time series on categorical data.
         :param units: int, The number of units in the RNN Cell
@@ -31,8 +36,17 @@ class ConditionalRNN(tf.keras.layers.Layer):
                 cell = tf.keras.layers.SimpleRNNCell
             else:
                 raise Exception('Only GRU, LSTM and RNN are supported as cells.')
-        self._cell = cell if hasattr(cell, 'units') else cell(units=units)
-        self.rnn = tf.keras.layers.RNN(cell=self._cell, *args, **kwargs)
+
+        rnn_class = tf.keras.layers.RNN
+
+        # split kwargs for cell and RNN classes.
+        args_support_cell = _get_arguments_of_constructor(cell)
+        args_support_rnn = _get_arguments_of_constructor(rnn_class)
+        kwargs_cell = {k: kwargs[k] for k in set(kwargs).intersection(args_support_cell)}
+        kwargs_rnn = {k: kwargs[k] for k in set(kwargs).intersection(args_support_rnn)}
+
+        self._cell = cell if hasattr(cell, 'units') else cell(units=units, **kwargs_cell)
+        self.rnn = rnn_class(cell=self._cell, *args, **kwargs_rnn)
 
         # single cond
         self.cond_to_init_state_dense_1 = tf.keras.layers.Dense(units=self.units)
